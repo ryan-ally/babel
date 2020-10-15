@@ -1004,6 +1004,7 @@ describe("buildConfigChain", function () {
     const getDefaults = () => ({
       babelrc: false,
       configFile: false,
+      browserslistConfigFile: false,
       cwd: process.cwd(),
       root: process.cwd(),
       envName: "development",
@@ -1011,6 +1012,7 @@ describe("buildConfigChain", function () {
       plugins: [],
       presets: [],
       cloneInputAst: true,
+      targets: {},
     });
     const realEnv = process.env.NODE_ENV;
     const realBabelEnv = process.env.BABEL_ENV;
