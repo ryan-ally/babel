@@ -10,6 +10,29 @@ const DEFAULT = {
 };
 
 export function helper(babel, options) {
+  const { useSpread = true, useBuiltIns = false } = options;
+
+  if (typeof useSpread !== "boolean") {
+    throw new Error(
+      "transform-react-jsx currently only accepts a boolean option for " +
+        "useSpread (defaults to true)",
+    );
+  }
+
+  if (typeof useBuiltIns !== "boolean") {
+    throw new Error(
+      "transform-react-jsx currently only accepts a boolean option for " +
+        "useBuiltIns (defaults to false)",
+    );
+  }
+
+  if (useSpread && useBuiltIns) {
+    throw new Error(
+      "transform-react-jsx currently only accepts useBuiltIns or useSpread " +
+        "but not both",
+    );
+  }
+
   const FILE_NAME_VAR = "_jsxFileName";
 
   const JSX_SOURCE_ANNOTATION_REGEX = /\*?\s*@jsxImportSource\s+([^\s]+)/;
@@ -43,16 +66,16 @@ export function helper(babel, options) {
         }
       }
 
-      const source = t.jsxAttribute(
-        t.jsxIdentifier("__source"),
-        t.jsxExpressionContainer(makeSource(path, state)),
-      );
       const self = t.jsxAttribute(
         t.jsxIdentifier("__self"),
         t.jsxExpressionContainer(t.thisExpression()),
       );
+      const source = t.jsxAttribute(
+        t.jsxIdentifier("__source"),
+        t.jsxExpressionContainer(makeSource(path, state)),
+      );
 
-      path.pushContainer("attributes", [source, self]);
+      path.pushContainer("attributes", [self, source]);
     },
   };
 
@@ -243,20 +266,6 @@ You can set \`throwIfNamespace: false\` to bypass this warning.`,
           if (options.development) {
             path.traverse(injectMetaPropertiesVisitor, state);
           }
-        }
-      },
-
-      exit(path, state) {
-        if (
-          state.get("@babel/plugin-react-jsx/runtime") === "classic" &&
-          state.get("@babel/plugin-react-jsx/pragmaSet") &&
-          state.get("@babel/plugin-react-jsx/usedFragment") &&
-          !state.get("@babel/plugin-react-jsx/pragmaFragSet")
-        ) {
-          throw new Error(
-            "transform-react-jsx: pragma has been set but " +
-              "pragmaFrag has not been set",
-          );
         }
       },
     },
@@ -781,6 +790,7 @@ You can set \`throwIfNamespace: false\` to bypass this warning.`,
     }
 
     const attribs = buildCreateElementOpeningElementAttributes(
+      file,
       path,
       openingPath.node.attributes,
     );
@@ -804,8 +814,9 @@ You can set \`throwIfNamespace: false\` to bypass this warning.`,
    * breaking on spreads, we then push a new object containing
    * all prior attributes to an array for later processing.
    */
-  function buildCreateElementOpeningElementAttributes(path, attribs) {
-    const props = [];
+  function buildCreateElementOpeningElementAttributes(file, path, attribs) {
+    let props = [];
+    const objs = [];
     const found = Object.create(null);
 
     for (const attr of attribs) {
@@ -820,10 +831,45 @@ You can set \`throwIfNamespace: false\` to bypass this warning.`,
         if (!options.development) continue;
       }
 
-      props.push(convertAttribute(attr));
+      if (useSpread || !t.isJSXSpreadAttribute(attr)) {
+        props.push(convertAttribute(attr));
+      } else {
+        if (props.length) {
+          objs.push(t.objectExpression(props));
+          props = [];
+        }
+        objs.push(attr.argument);
+      }
     }
 
-    return props.length > 0 ? t.objectExpression(props) : t.nullLiteral();
+    if (!props.length && !objs.length) {
+      return t.nullLiteral();
+    }
+
+    if (useSpread) {
+      return props.length > 0 ? t.objectExpression(props) : t.nullLiteral();
+    }
+
+    if (props.length) {
+      objs.push(t.objectExpression(props));
+      props = [];
+    }
+
+    if (objs.length === 1) {
+      return objs[0];
+    }
+
+    // looks like we have multiple objects
+    if (!t.isObjectExpression(objs[0])) {
+      objs.unshift(t.objectExpression([]));
+    }
+
+    const helper = useBuiltIns
+      ? t.memberExpression(t.identifier("Object"), t.identifier("assign"))
+      : file.addHelper("extends");
+
+    // spread it
+    return t.callExpression(helper, objs);
   }
 
   function sourceSelfError(path, name) {
