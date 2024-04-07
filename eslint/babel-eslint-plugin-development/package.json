@@ -35,6 +35,6 @@
   },
   "homepage": "https://babeljs.io/",
   "devDependencies": {
-    "eslint": "^7.5.0"
+    "eslint": "^9.0.0"
   }
 }
